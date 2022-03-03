@@ -3,7 +3,7 @@
 #include <malloc.h>
 
 struct __attribute__((packed)) section {
-    char name[8];
+    char name[8]; // Names of variables are from "CFF Explorer" app (used as a helper)
     uint32_t virtual_size;
     uint32_t virtual_address;
     uint32_t raw_size;
@@ -25,41 +25,48 @@ int main() {
         return -1;
     }
 
+    // Read main headers
     uint16_t number_of_sections;
-    uint32_t addr_of_entry_point, base_of_code;
-    uint64_t image_base;
-
+    uint32_t addr_of_entry_point;
     fseek(file, 134, SEEK_SET);
     fread(&number_of_sections, sizeof(uint16_t), 1, file);
     fseek(file, 168, SEEK_SET);
     fread(&addr_of_entry_point, sizeof(uint32_t), 1, file);
-    fread(&base_of_code, sizeof(uint32_t), 1, file);
-    fread(&image_base, sizeof(uint64_t), 1, file);
 
+    // Read section headers
     struct section *sections = malloc(sizeof(struct section) * number_of_sections);
     if (!sections) {
         printf("\nError: can't allocate memory for sections!\n");
         return -2;
     }
-
     fseek(file, 0x188, SEEK_SET);
     for (uint16_t i = 0; i < number_of_sections; i++) {
         fread(&sections[i], sizeof(struct section), 1, file);
     }
 
+    // Read data from section .text
     fseek(file, (long) sections[0].raw_address, SEEK_SET);
-    uint8_t* data = malloc(sections[0].raw_size);
+    uint8_t *data = malloc(sections[0].raw_size);
     if (!data) {
         printf("\nError: can't allocate memory for binary data!\n");
-        return -2;
+        return -3;
     }
     fread(data, sections[0].raw_size, 1, file);
-    fclose(file);
+
+    // Write data from section .text to "code.bin"
     file = fopen("code.bin", "wb");
+    if (!file) {
+        printf("\nError: unable to write data to file \"code.bin\"!\n");
+        return -4;
+    }
     fwrite(data, sections[0].raw_size, 1, file);
 
-    fclose(file);
+    // Write info from headers to "info.txt"
     file = fopen("info.txt", "w");
+    if (!file) {
+        printf("\nError: unable to write data to file \"info.txt\"!\n");
+        return -5;
+    }
     fprintf(file, "[INFORMATION ABOUT FILE \"%s\"]\n", file_name);
     fprintf(file, "Address of Entry Point: 0x%X\n", addr_of_entry_point);
     fprintf(file, "Number of sections:\t%" PRIu16 "\n", number_of_sections);
@@ -78,8 +85,6 @@ int main() {
     }
 
     fclose(file);
-
-
     free(data);
     free(sections);
     return 0;
