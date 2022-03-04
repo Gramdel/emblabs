@@ -16,7 +16,7 @@ struct __attribute__((packed)) section {
 };
 
 int main() {
-    printf("Input name of an executable file to be read (not more than 16 symbols):\n");
+    printf("Input name of an executable (x64) file to be read (not more than 16 symbols):\n");
     char file_name[16];
     scanf("%s", file_name);
     FILE *file = fopen(file_name, "rb");
@@ -28,38 +28,42 @@ int main() {
     // Read main headers
     uint16_t number_of_sections;
     uint32_t addr_of_entry_point;
-    fseek(file, 134, SEEK_SET);
+    fseek(file, 0x86, SEEK_SET);
     fread(&number_of_sections, sizeof(uint16_t), 1, file);
-    fseek(file, 168, SEEK_SET);
+    fseek(file, 0xA8, SEEK_SET);
     fread(&addr_of_entry_point, sizeof(uint32_t), 1, file);
 
-    // Read section headers
+    // Read section headers and executable data (from sections that contain such)
     struct section *sections = malloc(sizeof(struct section) * number_of_sections);
     if (!sections) {
         printf("\nError: can't allocate memory for sections!\n");
         return -2;
     }
+    uint8_t *data = NULL;
+    size_t data_size = 0;
     fseek(file, 0x188, SEEK_SET);
     for (uint16_t i = 0; i < number_of_sections; i++) {
         fread(&sections[i], sizeof(struct section), 1, file);
+        if (sections[i].characteristics & 0x20) {
+            fseek(file, (long) sections[i].raw_address, SEEK_SET);
+            data = realloc(data, data_size + sections[i].raw_size);
+            if (!data) {
+                printf("\nError: can't allocate memory for binary data!\n");
+                return -3;
+            }
+            fread(data + data_size, sections[i].raw_size, 1, file);
+            fseek(file, (long) (0x188 + sizeof(struct section) * (i + 1)), SEEK_SET);
+            data_size += sections[i].raw_size;
+        }
     }
 
-    // Read data from section .text
-    fseek(file, (long) sections[0].raw_address, SEEK_SET);
-    uint8_t *data = malloc(sections[0].raw_size);
-    if (!data) {
-        printf("\nError: can't allocate memory for binary data!\n");
-        return -3;
-    }
-    fread(data, sections[0].raw_size, 1, file);
-
-    // Write data from section .text to "code.bin"
+    // Write executable data "code.bin"
     file = fopen("code.bin", "wb");
     if (!file) {
         printf("\nError: unable to write data to file \"code.bin\"!\n");
         return -4;
     }
-    fwrite(data, sections[0].raw_size, 1, file);
+    fwrite(data, data_size, 1, file);
 
     // Write info from headers to "info.txt"
     file = fopen("info.txt", "w");
